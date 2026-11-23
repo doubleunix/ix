@@ -1,0 +1,21 @@
+#!/bin/sh
+export PATH=/bin:/usr/bin:/sbin:/usr/sbin HOME=/root TERM=linux
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+mkdir -p /dev/pts /run
+mount -t devpts devpts /dev/pts
+mount -t tmpfs tmpfs /run
+ip link set lo up
+modprobe virtio_pci 2>/dev/null
+modprobe virtio_net 2>/dev/null
+if ip link set eth0 up 2>/dev/null; then
+    busybox udhcpc -n -q -t 2 -i eth0 >/dev/null 2>&1 &
+fi
+printf '\nix / Sinai\n'
+cat /etc/issue
+cd /root
+while :; do
+    busybox setsid busybox cttyhack /bin/bash -l
+    sleep 1
+done

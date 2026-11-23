@@ -1,0 +1,33 @@
+#!/bin/bash
+set -euo pipefail
+root=$1
+here=$(dirname -- "$0")
+"$here/enter" "$root" bash -ec '
+    test "$(pwd)" = /root
+    test "$(id -u user)" = 1
+    test "$(id -u yhwh)" = 2
+    test -s .face
+    test -d src
+    git --version
+    /bin/toybox --version
+    gen list | grep -qx doubleunix/yhwh
+    man -w @
+    test "$(yhwh --help | head -c 4)" = yhwh
+    rc=0
+    GEN_AGENT=/bin/false yhwh -c "exit 7" || rc=$?
+    test "$rc" -eq 7
+    rc=0
+    GEN_AGENT=/bin/false nsh -c "exit 6" || rc=$?
+    test "$rc" -eq 6
+    env GEN_AGENT=/bin/cat law "praise the loader" | grep -qx "praise the loader"
+    check=$(mktemp -d)
+    trap "rm -rf -- \"$check\"" EXIT
+    printf "#!/bin/sh\nprintf \"confirmed\\\\n\"\n" > "$check/script"
+    env YHWH_PREFIX="$check" yhwh save example "$check/script" >/dev/null
+    test "$("$check/bin/example")" = confirmed
+    printf "#!/bin/sh\nprintf \"%%s\\\\n\" \"#!/bin/sh\" \"echo generated\"\n" > "$check/agent"
+    chmod +x "$check/agent"
+    env GEN_AGENT="$check/agent" LD NSH > "$check/compiled"
+    test "$(sh "$check/compiled")" = generated
+    echo "ix: shell, generator, loader, manual and the three accounts work"
+'

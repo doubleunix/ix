@@ -1,0 +1,24 @@
+FROM alpine:3.23 AS toybox
+RUN apk add --no-cache build-base linux-headers curl bash
+WORKDIR /tmp
+RUN curl -fLSs --retry 3 https://landley.net/toybox/downloads/toybox-0.8.15.tar.gz -o toybox.tar.gz \
+ && echo '44e2bab43dfe2c171743297631ce558c6d9ed38b87a66fd751cef617574b375e  toybox.tar.gz' | sha256sum -c \
+ && tar xzf toybox.tar.gz
+WORKDIR /tmp/toybox-0.8.15
+RUN printf 'CONFIG_SH=y\nCONFIG_GZIP=y\nCONFIG_AWK=y\nCONFIG_TR=y\n' >/tmp/toyconfig \
+ && KCONFIG_ALLCONFIG=/tmp/toyconfig scripts/genconfig.sh -d \
+ && make -j4 CFLAGS=-U_FORTIFY_SOURCE
+
+FROM alpine:3.23 AS base
+RUN apk add --no-cache bash ca-certificates curl git jq make mandoc openssh-client shadow
+COPY --from=toybox /tmp/toybox-0.8.15/toybox /bin/toybox
+RUN cd /bin && for name in $(./toybox); do \
+      if [ "$name" != sh ] && [ ! -e "$name" ]; then ln -s toybox "$name"; fi; done \
+ && for name in cat grep ls sed; do ln -sfn toybox "/bin/$name"; done \
+ && rm -f /etc/motd
+
+FROM scratch AS world
+COPY --from=base / /
+
+FROM alpine:3.23 AS boot-tools
+RUN apk add --no-cache linux-virt syslinux xorriso

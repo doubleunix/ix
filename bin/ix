@@ -1,0 +1,170 @@
+#!/bin/bash
+set -euo pipefail
+
+cd -- "$(dirname -- "$0")/.."
+action=$1
+shift
+mkdir -p "$OUT"
+
+checkout() {
+    local path=$1 dst=$2
+    if [[ ! -f "$dst/Makefile" ]]; then
+        mkdir -p -- "$(dirname -- "$dst")"
+        git clone --depth 1 -- "$GIT_ROOT/$path" "$dst"
+    fi
+}
+
+overlay() {
+    local dst=$1 port account name home uid
+    checkout doubleunix/root "$HOME_TREE"
+    install -d "$dst/bin" "$dst/etc" "$dst/lib/ix" "$dst/root/src" \
+        "$dst/home/user" "$dst/home/yhwh" "$dst/dev" "$dst/proc" "$dst/sys" "$dst/run"
+    install -m 644 "$HOME_TREE/ports.mk" "$dst/lib/ix/ports.mk"
+    install -m 644 "$HOME_TREE/README.md" "$HOME_TREE/.face" "$dst/root/"
+    install -m 644 files/root.mk "$dst/Makefile"
+    for account in 0:/root 1:/home/user 2:/home/yhwh; do
+        IFS=: read -r uid home <<< "$account"
+        install -m 644 files/home.mk "$dst$home/Makefile"
+        chown "$uid:$uid" "$dst$home" "$dst$home/Makefile"
+    done
+    for port in thedynamiclinker/gen thedynamiclinker/LD thedynamiclinker/lord \
+        thedynamiclinker/nsh doubleunix/yhwh doubleunix/man; do
+        checkout "$port" "$SOURCES/$port"
+        make --no-print-directory -C "$SOURCES/$port" install DESTDIR="$dst" PREFIX=/
+    done
+    sed -i '1s|^#!.*|#!/bin/LD|' "$dst/bin/NSH"
+    install -m 644 files/profile files/shrc "$dst/etc/"
+    install -m 644 files/bash.bashrc "$dst/lib/ix/bashrc"
+    install -m 755 files/init "$dst/init"
+    printf '%s\n' 'Try make -C /, man @, or yhwh shell.' > "$dst/etc/issue"
+}
+
+world() {
+    ROOT=${ROOT%/}
+    if [[ $ROOT != /* || $ROOT == / || -L $ROOT || $(realpath -m -- "$ROOT") != "$ROOT" ]]; then
+        printf 'ix: use an absolute root directory: %s\n' "$ROOT" >&2
+        exit 2
+    fi
+    mkdir -p -- "$(dirname -- "$ROOT")"
+    exec 9>"$ROOT.lock"
+    flock 9
+    if [[ -f "$ROOT/etc/ix" ]]; then
+        exec 9>&-
+        printf 'ix: %s is ready\n' "$ROOT"
+        return
+    fi
+    if [[ -e $ROOT ]]; then
+        printf 'ix: %s already exists. Select a fresh directory with ROOT=.\n' "$ROOT" >&2
+        exit 1
+    fi
+    local stage
+    if ((EUID != 0)); then
+        printf '%s\n' 'ix: build as root to assign the three home directories' >&2
+        exit 1
+    fi
+    stage=$(mktemp -d "$ROOT.build.XXXXXXXX")
+    trap "rm -rf -- $(printf '%q' "$stage")" EXIT
+    cp -a "$OUT/base/." "$stage/"
+    rm -f "$stage/.ix-base"
+    chmod 755 "$stage"
+    cat > "$stage/etc/passwd" <<'PASSWD'
+root:x:0:0:root:/root:/bin/bash
+user:x:1:1:user:/home/user:/bin/bash
+yhwh:x:2:2:YHWH:/home/yhwh:/bin/bash
+nobody:x:65534:65534:nobody:/:/sbin/nologin
+PASSWD
+    cat > "$stage/etc/group" <<'GROUP'
+root:x:0:
+user:x:1:
+yhwh:x:2:
+nogroup:x:65534:
+GROUP
+    printf '%s\n' 'root:!:0::::::' 'user:!:0::::::' 'yhwh:!:0::::::' \
+        'nobody:!:0::::::' > "$stage/etc/shadow"
+    chmod 600 "$stage/etc/shadow"
+    printf '%s\n' /bin/sh /bin/bash /bin/nsh /bin/nhs /bin/yhwh > "$stage/etc/shells"
+    printf '%s\n' '127.0.0.1 localhost ix' '::1 localhost' > "$stage/etc/hosts"
+    cp -L /etc/resolv.conf "$stage/etc/resolv.conf"
+    overlay "$stage"
+    touch "$stage/etc/ix"
+    mv -T -- "$stage" "$ROOT"
+    exec 9>&-
+    printf 'ix: built %s\n' "$ROOT"
+}
+
+boot_image() (
+    world
+    "$ENGINE" build --target boot-tools -t ix:boot-tools -f Dockerfile.base .
+    boot=$(mktemp -d "$OUT/boot.XXXXXXXX")
+    trap 'rm -rf -- "$boot"' EXIT
+    "$ENGINE" run --rm ix:boot-tools tar -C / -cf - boot/vmlinuz-virt lib/modules usr/share/syslinux |
+        tar -xf - -C "$boot"
+    if [[ $KERNEL == "$OUT/vmlinuz-virt" ]]; then
+        cp "$boot/boot/vmlinuz-virt" "$KERNEL"
+    fi
+    (
+        cd "$ROOT"
+        find . -xdev -path './lib/modules' -prune -o -print0 | cpio --quiet -0 -o -H newc
+        cd "$boot"
+        find lib/modules -print0 | cpio --quiet -0 -o -H newc
+    ) | gzip -1 > "$OUT/ix.cpio.gz"
+    if [[ $action == iso ]]; then
+        mkdir -p "$boot/iso"
+        cp "$KERNEL" "$boot/iso/vmlinuz"
+        cp "$OUT/ix.cpio.gz" "$boot/iso/"
+        cp files/isolinux.cfg "$boot/iso/"
+        cp "$boot/usr/share/syslinux/"{isolinux.bin,ldlinux.c32} "$boot/iso/"
+        "$ENGINE" run --rm -v "$boot/iso:/media:rw" -v "$OUT:/out:rw" ix:boot-tools \
+            xorriso -as mkisofs -o /out/ix.iso -V IX -b isolinux.bin -c boot.cat \
+            -no-emul-boot -boot-load-size 4 -boot-info-table /media
+    fi
+)
+
+case "$action" in
+    world) world ;;
+    chroot)
+        world
+        exec bin/enter "$ROOT" "$@"
+        ;;
+    boot|iso)
+        if [[ $ARCH != x86_64 ]]; then printf '%s\n' 'ix: this boot build targets x86_64' >&2; exit 2; fi
+        boot_image
+        ;;
+    container)
+        world
+        tar --one-file-system -C "$ROOT" -cf - . |
+            "$ENGINE" import --change 'WORKDIR /root' --change 'CMD ["/bin/bash","-l"]' - "$IMAGE"
+        ;;
+    distro)
+        family=$1
+        base=$2
+        stage=$(mktemp -d "$OUT/distro.XXXXXXXX")
+        trap 'rm -rf -- "$stage"' EXIT
+        overlay "$stage/root"
+        rm -r "$stage/root/etc" "$stage/root/dev" "$stage/root/proc" \
+            "$stage/root/sys" "$stage/root/run" "$stage/root/home"
+        rm "$stage/root/init"
+        case "$family" in
+            nixos) packages='nix-env -iA nixpkgs.git nixpkgs.gnumake nixpkgs.curl nixpkgs.jq nixpkgs.mandoc nixpkgs.openssh' ;;
+            arch) packages='pacman -Syu --noconfirm --needed git make curl jq man-db openssh' ;;
+            gentoo) packages='emerge-webrsync -q && emerge --quiet --getbinpkg --oneshot dev-vcs/git dev-build/make net-misc/curl app-misc/jq sys-apps/man-db net-misc/openssh' ;;
+        esac
+        cat > "$stage/Dockerfile" <<DOCKERFILE
+FROM $base
+RUN $packages
+COPY root /tmp/ix
+RUN for dir in bin lib share root; do mkdir -p "/\$dir" && cp -a "/tmp/ix/\$dir/." "/\$dir/" || exit; done \\
+ && cp /tmp/ix/Makefile / && rm -r /tmp/ix \\
+ && { test -x /bin/bash || ln -s "\$(command -v bash)" /bin/bash; } \\
+ && { test -x /usr/bin/env || { mkdir -p /usr/bin && ln -s "\$(command -v env)" /usr/bin/env; }; }
+ENV MANPATH=/share/man:/usr/share/man
+WORKDIR /root
+CMD ["/bin/bash", "-l"]
+DOCKERFILE
+        "$ENGINE" build -t "ix:$family" "$stage"
+        ;;
+    check)
+        world
+        exec bin/check "$ROOT"
+        ;;
+esac
