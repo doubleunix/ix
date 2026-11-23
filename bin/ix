@@ -2,6 +2,12 @@
 set -euo pipefail
 
 cd -- "$(dirname -- "$0")/.."
+if ((EUID != 0)); then
+    # Keep new output directories accessible to the caller even with a private umask.
+    mkdir -p -- "$OUT" 2>/dev/null || :
+    exec sudo --preserve-env=OUT,ENGINE,IMAGE,GIT_ROOT,HOME_TREE,SOURCES,ROOT,ARCH,KERNEL,GEN_URL,GEN_MODEL,GEN_AGENT,GEN_KEY -- "$PWD/bin/ix" "$@"
+fi
+
 action=$1
 shift
 mkdir -p "$OUT"
@@ -61,10 +67,6 @@ world() {
         exit 1
     fi
     local stage
-    if ((EUID != 0)); then
-        printf '%s\n' 'ix: build as root to assign the three home directories' >&2
-        exit 1
-    fi
     stage=$(mktemp -d "$ROOT.build.XXXXXXXX")
     trap "rm -rf -- $(printf '%q' "$stage")" EXIT
     cp -a "$OUT/base/." "$stage/"
@@ -102,8 +104,10 @@ boot_image() (
     trap 'rm -rf -- "$boot"' EXIT
     "$ENGINE" run --rm ix:boot-tools tar -C / -cf - boot/vmlinuz-virt lib/modules usr/share/syslinux |
         tar -xf - -C "$boot"
+    artifacts=("$OUT/ix.cpio.gz")
     if [[ $KERNEL == "$OUT/vmlinuz-virt" ]]; then
         cp "$boot/boot/vmlinuz-virt" "$KERNEL"
+        artifacts+=("$KERNEL")
     fi
     (
         cd "$ROOT"
@@ -120,10 +124,19 @@ boot_image() (
         "$ENGINE" run --rm -v "$boot/iso:/media:rw" -v "$OUT:/out:rw" ix:boot-tools \
             xorriso -as mkisofs -o /out/ix.iso -V IX -b isolinux.bin -c boot.cat \
             -no-emul-boot -boot-load-size 4 -boot-info-table /media
+        artifacts+=("$OUT/ix.iso")
+    fi
+    if [[ ${SUDO_UID:-0} != 0 ]]; then
+        chown -- "$SUDO_UID:$SUDO_GID" "${artifacts[@]}"
     fi
 )
 
 case "$action" in
+    base)
+        mkdir -p -m 755 "$OUT/base"
+        "$ENGINE" buildx build --target world --output "type=local,dest=$OUT/base" -f Dockerfile.base .
+        touch "$OUT/base/.ix-base"
+        ;;
     world) world ;;
     chroot)
         world

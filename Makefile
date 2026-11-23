@@ -23,9 +23,7 @@ help:
 		'make distro-nixos | distro-arch | distro-gentoo' 'make check'
 
 $(OUT)/base/.ix-base: Dockerfile.base
-	@mkdir -p "$(OUT)/base"
-	$(ENGINE) buildx build --target world --output "type=local,dest=$(OUT)/base" -f Dockerfile.base .
-	@touch "$@"
+	@bin/ix base
 
 world iso container check: $(OUT)/base/.ix-base
 	@bin/ix $@

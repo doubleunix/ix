@@ -4,19 +4,20 @@ Sinai is a small Linux root filesystem. Toybox supplies commands, musl
 supplies libc, and Bash supplies a real shell. Git and Make are the ports
 tools. gen, LD, lord, nsh and yhwh supply the English side of the system.
 
-Build with Docker and Buildx on Linux. Build the filesystem as root so it
-can assign UIDs 0, 1, and 2. QEMU starts the x86-64 guest. cpio and gzip
+Build with Docker and Buildx on Linux. Run Make as your ordinary user. ix
+uses sudo for filesystem and chroot operations, including assigning UIDs
+0, 1, and 2. QEMU runs as the caller and starts the x86-64 guest. cpio and gzip
 make its initramfs, and Syslinux starts the BIOS ISO. Alpine 3.23 supplies
 musl and the binary dependencies. ix builds Toybox from a pinned source
 archive.
 
 ~~~sh
-sudo make world
-sudo make chroot
-sudo make check
-sudo make boot
-sudo make iso
-sudo make container
+make world
+make chroot
+make check
+make boot
+make iso
+make container
 docker run --rm -it ix:local
 ~~~
 
@@ -39,5 +40,5 @@ authentication for private source trees.
 
 The **distro-nixos**, **distro-arch** and **distro-gentoo** targets add the
 same command and ports files to the corresponding container base. Each base
-keeps its system and account management. Those targets need Docker access
-and root to assemble the overlay.
+keeps its system and account management. ix uses sudo to assemble the overlay
+and build the image.
