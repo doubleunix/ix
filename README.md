@@ -28,7 +28,8 @@ Use **chsh -s /bin/yhwh user** as root to change an account's shell.
 
 Each home starts with **make enterprise**. Commands installed via gen go in
 /bin for root or ~/bin for other users. **make -C /** lists the system
-entry points. **man @** is the introduction. Set GIT_ROOT to use a mirror
+entry points. **make -C /bin**, **make -C /etc**, and **make -C /lib**
+each show something about their directory. **man @** is the introduction. Set GIT_ROOT to use a mirror
 with the same group and repository names.
 
 Set GEN_URL and GEN_MODEL to reach an agent from inside ix. The chroot

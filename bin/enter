@@ -23,7 +23,7 @@ ln -s fd/1 "$root/dev/stdout"
 ln -s fd/2 "$root/dev/stderr"
 
 if (($# == 0)); then set -- /bin/bash -l; fi
-exec env -i PATH=/bin:/usr/bin HOME=/root TERM="${TERM:-dumb}" \
+exec env -i PATH=/bin:/usr/bin HOME=/root TERM="${TERM:-dumb}" NO_COLOR="${NO_COLOR:-}" \
     GEN_URL="${GEN_URL:-}" GEN_MODEL="${GEN_MODEL:-}" GEN_AGENT="${GEN_AGENT:-}" \
     GEN_KEY="${GEN_KEY:-}" GIT_ROOT="${GIT_ROOT:-https://github.com}" \
     "$(command -v chroot)" "$root" /bin/bash -c '. /etc/profile; cd "$HOME"; exec "$@"' ix "$@"

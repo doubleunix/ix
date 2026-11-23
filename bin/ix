@@ -22,6 +22,9 @@ overlay() {
     install -m 644 "$HOME_TREE/ports.mk" "$dst/lib/ix/ports.mk"
     install -m 644 "$HOME_TREE/README.md" "$HOME_TREE/.face" "$dst/root/"
     install -m 644 files/root.mk "$dst/Makefile"
+    install -m 644 files/bin.mk "$dst/bin/Makefile"
+    install -m 644 files/etc.mk "$dst/etc/Makefile"
+    install -m 644 files/lib.mk "$dst/lib/Makefile"
     for account in 0:/root 1:/home/user 2:/home/yhwh; do
         IFS=: read -r uid home <<< "$account"
         install -m 644 files/home.mk "$dst$home/Makefile"
@@ -145,7 +148,7 @@ case "$action" in
             "$stage/root/sys" "$stage/root/run" "$stage/root/home"
         rm "$stage/root/init"
         case "$family" in
-            nixos) packages='nix-env -iA nixpkgs.git nixpkgs.gnumake nixpkgs.curl nixpkgs.jq nixpkgs.mandoc nixpkgs.openssh' ;;
+            nixos) packages='nix-env -iA nixpkgs.gnumake nixpkgs.curl nixpkgs.jq nixpkgs.openssh' ;;
             arch) packages='pacman -Syu --noconfirm --needed git make curl jq man-db openssh' ;;
             gentoo) packages='emerge-webrsync -q && emerge --quiet --getbinpkg --oneshot dev-vcs/git dev-build/make net-misc/curl app-misc/jq sys-apps/man-db net-misc/openssh' ;;
         esac
@@ -157,7 +160,7 @@ RUN for dir in bin lib share root; do mkdir -p "/\$dir" && cp -a "/tmp/ix/\$dir/
  && cp /tmp/ix/Makefile / && rm -r /tmp/ix \\
  && { test -x /bin/bash || ln -s "\$(command -v bash)" /bin/bash; } \\
  && { test -x /usr/bin/env || { mkdir -p /usr/bin && ln -s "\$(command -v env)" /usr/bin/env; }; }
-ENV MANPATH=/share/man:/usr/share/man
+ENV PATH=/bin:/usr/bin:\$PATH MANPATH=/share/man:/usr/share/man
 WORKDIR /root
 CMD ["/bin/bash", "-l"]
 DOCKERFILE
