@@ -136,7 +136,9 @@ case "$action" in
     container)
         world
         tar --one-file-system -C "$ROOT" -cf - . |
-            "$ENGINE" import --change 'WORKDIR /root' --change 'CMD ["/bin/bash","-l"]' - "$IMAGE"
+            "$ENGINE" import --change 'WORKDIR /root' \
+                --change 'ENV MANPATH=/share/man:/usr/share/man' \
+                --change 'CMD ["/bin/bash","-l"]' - "$IMAGE"
         ;;
     distro)
         family=$1
